@@ -10,21 +10,25 @@ const fs = require('fs');
 const path = require('path');
 
 const hasDatabaseUrl = !!process.env.DATABASE_URL;
+const isRender = (process.env.DB_HOST || '').includes('render.com') || (process.env.DATABASE_URL || '').includes('render.com');
+const sslOption = isRender ? { rejectUnauthorized: false } : undefined;
 
 const defaultConfig = hasDatabaseUrl
-  ? { connectionString: process.env.DATABASE_URL }
+  ? { connectionString: process.env.DATABASE_URL, ssl: sslOption }
   : {
       host: process.env.DB_HOST || 'localhost',
       port: parseInt(process.env.DB_PORT, 10) || 5432,
       database: 'postgres',
       user: process.env.DB_USER || 'postgres',
       password: process.env.DB_PASSWORD || 'your_password',
+      ssl: sslOption,
     };
 
 const dbName = process.env.DB_NAME || 'order_app';
 
 async function createDatabase() {
-  if (hasDatabaseUrl) return; // Render 등은 DB가 이미 있음
+  // Render 등 클라우드 DB는 이미 생성되어 있음
+  if (hasDatabaseUrl || isRender) return;
 
   const client = new Client(defaultConfig);
 
@@ -53,7 +57,7 @@ async function createDatabase() {
 
 async function createTables() {
   const appConfig = hasDatabaseUrl
-    ? { connectionString: process.env.DATABASE_URL }
+    ? { connectionString: process.env.DATABASE_URL, ssl: sslOption }
     : { ...defaultConfig, database: dbName };
 
   const client = new Client(appConfig);
@@ -78,13 +82,14 @@ async function createTables() {
 
 async function testConnection() {
   const appConfig = hasDatabaseUrl
-    ? { connectionString: process.env.DATABASE_URL }
+    ? { connectionString: process.env.DATABASE_URL, ssl: sslOption }
     : {
         host: process.env.DB_HOST || 'localhost',
         port: parseInt(process.env.DB_PORT, 10) || 5432,
         database: dbName,
         user: process.env.DB_USER || 'postgres',
         password: process.env.DB_PASSWORD || 'your_password',
+        ssl: sslOption,
       };
 
   const client = new Client(appConfig);
