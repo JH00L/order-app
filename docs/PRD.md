@@ -352,3 +352,326 @@ const OrderStatus = {
 - 주문 목록은 스크롤 가능하도록 구성
 - 새 주문 도착 시 시각적/청각적 알림 (추후 구현)
 - 상태 버튼은 현재 상태에 따라 다른 색상으로 표시
+
+---
+
+## 5. 백엔드 설계
+
+### 5.1 데이터 모델
+
+#### 5.1.1 Menus (메뉴)
+| 필드명 | 타입 | 설명 | 제약조건 |
+|--------|------|------|----------|
+| id | INTEGER | 메뉴 고유 식별자 | PRIMARY KEY, AUTO INCREMENT |
+| name | VARCHAR(100) | 커피 이름 | NOT NULL |
+| description | TEXT | 메뉴 설명 | |
+| price | INTEGER | 가격 (원) | NOT NULL, DEFAULT 0 |
+| image | VARCHAR(255) | 이미지 파일 경로/URL | |
+| stock | INTEGER | 재고 수량 | NOT NULL, DEFAULT 0 |
+| is_available | BOOLEAN | 판매 가능 여부 | DEFAULT TRUE |
+| created_at | TIMESTAMP | 생성 일시 | DEFAULT CURRENT_TIMESTAMP |
+| updated_at | TIMESTAMP | 수정 일시 | DEFAULT CURRENT_TIMESTAMP |
+
+#### 5.1.2 Options (옵션)
+| 필드명 | 타입 | 설명 | 제약조건 |
+|--------|------|------|----------|
+| id | INTEGER | 옵션 고유 식별자 | PRIMARY KEY, AUTO INCREMENT |
+| menu_id | INTEGER | 연결할 메뉴 ID | FOREIGN KEY → Menus(id) |
+| name | VARCHAR(100) | 옵션 이름 | NOT NULL |
+| price | INTEGER | 옵션 추가 가격 (원) | NOT NULL, DEFAULT 0 |
+| created_at | TIMESTAMP | 생성 일시 | DEFAULT CURRENT_TIMESTAMP |
+
+#### 5.1.3 Orders (주문)
+| 필드명 | 타입 | 설명 | 제약조건 |
+|--------|------|------|----------|
+| id | INTEGER | 주문 고유 식별자 | PRIMARY KEY, AUTO INCREMENT |
+| total_amount | INTEGER | 총 주문 금액 (원) | NOT NULL |
+| status | VARCHAR(20) | 주문 상태 | DEFAULT 'pending' |
+| created_at | TIMESTAMP | 주문 일시 | DEFAULT CURRENT_TIMESTAMP |
+| updated_at | TIMESTAMP | 수정 일시 | DEFAULT CURRENT_TIMESTAMP |
+
+**주문 상태 값:**
+- `pending`: 신규 주문
+- `accepted`: 주문 접수
+- `preparing`: 제조 중
+- `completed`: 완료
+
+#### 5.1.4 Order_Items (주문 상세)
+| 필드명 | 타입 | 설명 | 제약조건 |
+|--------|------|------|----------|
+| id | INTEGER | 주문 상세 고유 식별자 | PRIMARY KEY, AUTO INCREMENT |
+| order_id | INTEGER | 주문 ID | FOREIGN KEY → Orders(id) |
+| menu_id | INTEGER | 메뉴 ID | FOREIGN KEY → Menus(id) |
+| menu_name | VARCHAR(100) | 주문 시점의 메뉴명 | NOT NULL |
+| quantity | INTEGER | 수량 | NOT NULL, DEFAULT 1 |
+| unit_price | INTEGER | 단가 (옵션 포함) | NOT NULL |
+| subtotal | INTEGER | 소계 (단가 × 수량) | NOT NULL |
+
+#### 5.1.5 Order_Item_Options (주문 상세 옵션)
+| 필드명 | 타입 | 설명 | 제약조건 |
+|--------|------|------|----------|
+| id | INTEGER | 고유 식별자 | PRIMARY KEY, AUTO INCREMENT |
+| order_item_id | INTEGER | 주문 상세 ID | FOREIGN KEY → Order_Items(id) |
+| option_id | INTEGER | 옵션 ID | FOREIGN KEY → Options(id) |
+| option_name | VARCHAR(100) | 주문 시점의 옵션명 | NOT NULL |
+| option_price | INTEGER | 주문 시점의 옵션 가격 | NOT NULL |
+
+### 5.2 ER 다이어그램
+
+```
+┌─────────────┐       ┌─────────────┐
+│   Menus     │       │   Options   │
+├─────────────┤       ├─────────────┤
+│ id (PK)     │──┐    │ id (PK)     │
+│ name        │  │    │ menu_id(FK) │──┘
+│ description │  │    │ name        │
+│ price       │  │    │ price       │
+│ image       │  └────│             │
+│ stock       │       └─────────────┘
+│ is_available│
+│ created_at  │
+│ updated_at  │
+└─────────────┘
+       │
+       │ (참조)
+       ▼
+┌─────────────┐       ┌─────────────────┐       ┌──────────────────────┐
+│   Orders    │       │  Order_Items    │       │ Order_Item_Options   │
+├─────────────┤       ├─────────────────┤       ├──────────────────────┤
+│ id (PK)     │◄──────│ order_id (FK)   │       │ id (PK)              │
+│ total_amount│       │ id (PK)         │◄──────│ order_item_id (FK)   │
+│ status      │       │ menu_id (FK)    │       │ option_id (FK)       │
+│ created_at  │       │ menu_name       │       │ option_name          │
+│ updated_at  │       │ quantity        │       │ option_price         │
+└─────────────┘       │ unit_price      │       └──────────────────────┘
+                      │ subtotal        │
+                      └─────────────────┘
+```
+
+### 5.3 사용자 흐름 (데이터 스키마 기준)
+
+#### 5.3.1 메뉴 조회 흐름
+```
+[사용자] → 주문하기 화면 접속
+    ↓
+[프론트엔드] → GET /api/menus 요청
+    ↓
+[백엔드] → Menus 테이블에서 메뉴 목록 조회
+         → Options 테이블에서 각 메뉴의 옵션 조회
+    ↓
+[프론트엔드] → 메뉴 카드에 정보 표시 (이름, 설명, 가격, 이미지, 옵션)
+             → 재고(stock) 정보는 프론트엔드에서 품절 여부 판단에만 사용
+    ↓
+[관리자 화면] → 재고 현황에 stock 수량 표시
+```
+
+#### 5.3.2 장바구니 담기 흐름
+```
+[사용자] → 메뉴 선택 + 옵션 선택 + "담기" 버튼 클릭
+    ↓
+[프론트엔드] → 장바구니 상태에 아이템 추가 (로컬 스토리지 저장)
+             → 동일 메뉴+옵션 조합은 수량만 증가
+    ↓
+[장바구니 UI] → 담긴 메뉴 목록, 옵션, 수량, 금액 표시
+```
+
+#### 5.3.3 주문하기 흐름
+```
+[사용자] → 장바구니에서 "주문하기" 버튼 클릭
+    ↓
+[프론트엔드] → POST /api/orders 요청 (장바구니 데이터 전송)
+    ↓
+[백엔드] → Orders 테이블에 주문 생성 (status: 'pending')
+         → Order_Items 테이블에 주문 상세 저장
+         → Order_Item_Options 테이블에 선택된 옵션 저장
+         → Menus 테이블에서 주문 수량만큼 재고(stock) 차감
+    ↓
+[프론트엔드] → 주문 완료 알림 표시
+             → 장바구니 초기화
+```
+
+#### 5.3.4 주문 상태 관리 흐름
+```
+[관리자] → 관리자 화면의 "주문 현황" 조회
+    ↓
+[프론트엔드] → GET /api/orders 요청
+    ↓
+[백엔드] → Orders + Order_Items + Order_Item_Options 조회
+    ↓
+[관리자 화면] → 주문 목록 표시 (주문 일시, 내용, 금액, 상태)
+    ↓
+[관리자] → 상태 버튼 클릭
+    ↓
+[프론트엔드] → PATCH /api/orders/:id/status 요청
+    ↓
+[백엔드] → Orders 테이블 status 업데이트
+         → pending → accepted → preparing → completed
+```
+
+### 5.4 API 설계
+
+#### 5.4.1 메뉴 API
+
+| 엔드포인트 | Method | 설명 | 요청 | 응답 |
+|------------|--------|------|------|------|
+| /api/menus | GET | 메뉴 목록 조회 | - | 메뉴 배열 (옵션 포함) |
+| /api/menus/:id | GET | 메뉴 상세 조회 | - | 메뉴 상세 정보 |
+
+**GET /api/menus 응답 예시:**
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": 1,
+      "name": "아메리카노(ICE)",
+      "description": "깔끔하고 시원한 아이스 아메리카노",
+      "price": 4000,
+      "image": "americano-ice.jpg",
+      "stock": 10,
+      "isAvailable": true,
+      "options": [
+        { "id": 1, "name": "샷 추가", "price": 500 },
+        { "id": 2, "name": "시럽 추가", "price": 0 }
+      ]
+    }
+  ]
+}
+```
+
+#### 5.4.2 주문 API
+
+| 엔드포인트 | Method | 설명 | 요청 | 응답 |
+|------------|--------|------|------|------|
+| /api/orders | GET | 주문 목록 조회 | - | 주문 배열 |
+| /api/orders | POST | 주문 생성 | 주문 데이터 | 생성된 주문 |
+| /api/orders/:id | GET | 주문 상세 조회 | - | 주문 상세 정보 |
+| /api/orders/:id/status | PATCH | 주문 상태 변경 | 새 상태 | 변경된 주문 |
+| /api/orders/stats | GET | 주문 통계 조회 | - | 상태별 통계 |
+
+**POST /api/orders 요청 예시:**
+```json
+{
+  "items": [
+    {
+      "menuId": 1,
+      "quantity": 2,
+      "selectedOptions": [1, 2]
+    },
+    {
+      "menuId": 3,
+      "quantity": 1,
+      "selectedOptions": []
+    }
+  ]
+}
+```
+
+**POST /api/orders 응답 예시:**
+```json
+{
+  "success": true,
+  "data": {
+    "id": 1,
+    "totalAmount": 14000,
+    "status": "pending",
+    "createdAt": "2026-02-02T10:30:00Z",
+    "items": [
+      {
+        "menuId": 1,
+        "menuName": "아메리카노(ICE)",
+        "quantity": 2,
+        "unitPrice": 4500,
+        "subtotal": 9000,
+        "options": [
+          { "name": "샷 추가", "price": 500 },
+          { "name": "시럽 추가", "price": 0 }
+        ]
+      },
+      {
+        "menuId": 3,
+        "menuName": "카페라떼",
+        "quantity": 1,
+        "unitPrice": 5000,
+        "subtotal": 5000,
+        "options": []
+      }
+    ]
+  }
+}
+```
+
+**GET /api/orders/:id 응답 예시:**
+```json
+{
+  "success": true,
+  "data": {
+    "id": 1,
+    "totalAmount": 14000,
+    "status": "preparing",
+    "createdAt": "2026-02-02T10:30:00Z",
+    "updatedAt": "2026-02-02T10:35:00Z",
+    "items": [
+      {
+        "menuId": 1,
+        "menuName": "아메리카노(ICE)",
+        "quantity": 2,
+        "unitPrice": 4500,
+        "subtotal": 9000,
+        "options": [
+          { "name": "샷 추가", "price": 500 },
+          { "name": "시럽 추가", "price": 0 }
+        ]
+      }
+    ]
+  }
+}
+```
+
+**PATCH /api/orders/:id/status 요청 예시:**
+```json
+{
+  "status": "accepted"
+}
+```
+
+#### 5.4.3 재고 API
+
+| 엔드포인트 | Method | 설명 | 요청 | 응답 |
+|------------|--------|------|------|------|
+| /api/inventory | GET | 재고 현황 조회 | - | 메뉴별 재고 배열 |
+| /api/inventory/:menuId | PATCH | 재고 수정 | 변경할 수량 | 변경된 재고 |
+
+**PATCH /api/inventory/:menuId 요청 예시:**
+```json
+{
+  "stock": 15
+}
+```
+
+또는 증감 방식:
+```json
+{
+  "adjustment": 1
+}
+```
+
+### 5.5 비즈니스 로직
+
+#### 5.5.1 주문 생성 시 처리 로직
+1. 요청된 메뉴들의 재고 확인
+2. 재고 부족 시 에러 반환
+3. Orders 테이블에 주문 레코드 생성
+4. Order_Items 테이블에 각 메뉴별 상세 저장
+5. Order_Item_Options 테이블에 선택된 옵션 저장
+6. Menus 테이블에서 주문 수량만큼 재고 차감
+7. 트랜잭션으로 전체 과정 처리 (실패 시 롤백)
+
+#### 5.5.2 재고 관리 로직
+- 재고가 0이 되면 `is_available`을 `false`로 설정
+- 재고가 1 이상으로 증가하면 `is_available`을 `true`로 설정
+- 재고는 음수가 될 수 없음
+
+#### 5.5.3 주문 상태 변경 로직
+- 상태는 순서대로만 변경 가능: pending → accepted → preparing → completed
+- 역방향 상태 변경 불가
