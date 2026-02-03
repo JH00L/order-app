@@ -1,4 +1,4 @@
-function Cart({ items, onOrder, onRemoveItem }) {
+function Cart({ items, onOrder, onRemoveItem, submitting = false }) {
   const totalAmount = items.reduce((sum, item) => sum + item.totalPrice * item.quantity, 0)
 
   return (
@@ -50,14 +50,14 @@ function Cart({ items, onOrder, onRemoveItem }) {
               </div>
               <button
                 onClick={onOrder}
-                disabled={items.length === 0}
+                disabled={items.length === 0 || submitting}
                 className={`w-full px-4 py-2 rounded transition-colors text-sm ${
-                  items.length === 0
+                  items.length === 0 || submitting
                     ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
                     : 'bg-blue-600 text-white hover:bg-blue-700'
                 }`}
               >
-                주문하기
+                {submitting ? '주문 중...' : '주문하기'}
               </button>
             </div>
           </div>

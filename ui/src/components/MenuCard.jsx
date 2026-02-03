@@ -19,8 +19,10 @@ function MenuCard({ menu, onAddToCart }) {
     setSelectedOptions([])
   }
 
+  const isAvailable = menu.isAvailable !== false
+
   return (
-    <div className="bg-white border border-gray-200 rounded-lg p-4">
+    <div className={`bg-white border rounded-lg p-4 ${!isAvailable ? 'opacity-60 border-gray-200' : 'border-gray-200'}`}>
       <img
         src={menu.image}
         alt={menu.name}
@@ -48,9 +50,14 @@ function MenuCard({ menu, onAddToCart }) {
 
       <button
         onClick={handleAddToCart}
-        className="w-full py-2 border border-gray-300 rounded hover:bg-gray-50 transition-colors"
+        disabled={!isAvailable}
+        className={`w-full py-2 border rounded transition-colors ${
+          isAvailable
+            ? 'border-gray-300 hover:bg-gray-50'
+            : 'border-gray-200 bg-gray-100 text-gray-400 cursor-not-allowed'
+        }`}
       >
-        담기
+        {isAvailable ? '담기' : '품절'}
       </button>
     </div>
   )

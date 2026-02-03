@@ -1,87 +1,156 @@
-import { useState } from 'react'
-import { initialInventory } from '../data/menuData'
+import { useState, useEffect, useCallback } from 'react'
+import { api } from '../api/client'
 
 function AdminPage() {
-  // 재고 상태 (6개 메뉴 모두 포함)
-  const [inventory, setInventory] = useState(initialInventory)
+  const [inventory, setInventory] = useState([])
+  const [orders, setOrders] = useState([])
+  const [stats, setStats] = useState({
+    total: 0,
+    pending: 0,
+    accepted: 0,
+    preparing: 0,
+    completed: 0,
+  })
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
 
-  // 주문 상태
-  const [orders, setOrders] = useState([
-    {
-      id: 1,
-      createdAt: '2026-01-30T13:00:00',
-      items: [{ menuName: '아메리카노(ICE)', quantity: 1, price: 4000 }],
-      totalAmount: 4000,
-      status: 'pending',
-    },
-    {
-      id: 2,
-      createdAt: '2026-01-30T13:15:00',
-      items: [{ menuName: '카페라떼', quantity: 2, price: 10000 }],
-      totalAmount: 10000,
-      status: 'accepted',
-    },
-    {
-      id: 3,
-      createdAt: '2026-01-30T13:30:00',
-      items: [{ menuName: '아메리카노(HOT)', quantity: 1, price: 4000 }],
-      totalAmount: 4000,
-      status: 'preparing',
-    },
-  ])
+  const fetchInventory = useCallback(async () => {
+    try {
+      const res = await api.getInventory()
+      if (res.success && res.data) {
+        setInventory(
+          res.data.map((item) => ({
+            id: item.menuId,
+            name: item.menuName,
+            stock: item.stock,
+          }))
+        )
+      }
+    } catch (e) {
+      setError(e.message || '재고를 불러오지 못했습니다.')
+    }
+  }, [])
 
-  // 대시보드 통계 계산
-  const stats = {
-    total: orders.length,
-    pending: orders.filter((o) => o.status === 'pending').length,
-    accepted: orders.filter((o) => o.status === 'accepted').length,
-    preparing: orders.filter((o) => o.status === 'preparing').length,
-    completed: orders.filter((o) => o.status === 'completed').length,
-  }
+  const fetchOrders = useCallback(async () => {
+    try {
+      const res = await api.getOrders()
+      if (res.success && res.data) {
+        setOrders(
+          res.data.map((order) => ({
+            id: order.id,
+            createdAt: order.createdAt,
+            items: order.items.map((item) => ({
+              menuName: item.menuName,
+              quantity: item.quantity,
+              price: item.unitPrice,
+            })),
+            totalAmount: order.totalAmount,
+            status: order.status,
+          }))
+        )
+      }
+    } catch (e) {
+      setError(e.message || '주문 목록을 불러오지 못했습니다.')
+    }
+  }, [])
 
-  // 재고 상태 표시
+  const fetchStats = useCallback(async () => {
+    try {
+      const res = await api.getOrderStats()
+      if (res.success && res.data) {
+        setStats(res.data)
+      }
+    } catch (e) {
+      setError(e.message || '통계를 불러오지 못했습니다.')
+    }
+  }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    async function load() {
+      setLoading(true)
+      setError(null)
+      try {
+        await Promise.all([fetchInventory(), fetchOrders(), fetchStats()])
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    load()
+    return () => { cancelled = true }
+  }, [fetchInventory, fetchOrders, fetchStats])
+
+  const refresh = useCallback(() => {
+    fetchInventory()
+    fetchOrders()
+    fetchStats()
+  }, [fetchInventory, fetchOrders, fetchStats])
+
   const getStockStatus = (stock) => {
     if (stock === 0) return { text: '품절', color: 'text-red-600 bg-red-100' }
     if (stock < 5) return { text: '주의', color: 'text-yellow-600 bg-yellow-100' }
     return { text: '정상', color: 'text-green-600 bg-green-100' }
   }
 
-  // 재고 증가
-  const handleIncreaseStock = (id) => {
-    setInventory((prev) =>
-      prev.map((item) =>
-        item.id === id ? { ...item, stock: item.stock + 1 } : item
-      )
-    )
+  const handleIncreaseStock = async (id) => {
+    try {
+      const res = await api.updateInventory(id, { adjustment: 1 })
+      if (res.success && res.data) {
+        setInventory((prev) =>
+          prev.map((item) =>
+            item.id === res.data.menuId
+              ? { ...item, stock: res.data.stock }
+              : item
+          )
+        )
+      }
+    } catch (e) {
+      alert(e.message || '재고 수정에 실패했습니다.')
+    }
   }
 
-  // 재고 감소
-  const handleDecreaseStock = (id) => {
-    setInventory((prev) =>
-      prev.map((item) =>
-        item.id === id && item.stock > 0
-          ? { ...item, stock: item.stock - 1 }
-          : item
-      )
-    )
+  const handleDecreaseStock = async (id) => {
+    try {
+      const res = await api.updateInventory(id, { adjustment: -1 })
+      if (res.success && res.data) {
+        setInventory((prev) =>
+          prev.map((item) =>
+            item.id === res.data.menuId
+              ? { ...item, stock: res.data.stock }
+              : item
+          )
+        )
+      }
+    } catch (e) {
+      alert(e.message || '재고 수정에 실패했습니다.')
+    }
   }
 
-  // 주문 상태 변경
-  const handleStatusChange = (orderId) => {
-    setOrders((prev) =>
-      prev.map((order) => {
-        if (order.id !== orderId) return order
-        const nextStatus = {
-          pending: 'accepted',
-          accepted: 'preparing',
-          preparing: 'completed',
-        }
-        return { ...order, status: nextStatus[order.status] || order.status }
-      })
-    )
+  const handleStatusChange = async (orderId) => {
+    const order = orders.find((o) => o.id === orderId)
+    if (!order) return
+    const nextStatus = {
+      pending: 'accepted',
+      accepted: 'preparing',
+      preparing: 'completed',
+    }
+    const newStatus = nextStatus[order.status]
+    if (!newStatus) return
+    try {
+      const res = await api.updateOrderStatus(orderId, newStatus)
+      if (res.success) {
+        setOrders((prev) =>
+          prev.map((o) =>
+            o.id === orderId ? { ...o, status: newStatus } : o
+          )
+        )
+        fetchStats()
+      }
+    } catch (e) {
+      alert(e.message || '상태 변경에 실패했습니다.')
+    }
   }
 
-  // 상태에 따른 버튼 텍스트
   const getStatusButton = (status) => {
     switch (status) {
       case 'pending':
@@ -95,7 +164,6 @@ function AdminPage() {
     }
   }
 
-  // 상태 라벨
   const getStatusLabel = (status) => {
     switch (status) {
       case 'pending':
@@ -111,7 +179,6 @@ function AdminPage() {
     }
   }
 
-  // 날짜 포맷
   const formatDate = (dateString) => {
     const date = new Date(dateString)
     const month = date.getMonth() + 1
@@ -119,6 +186,28 @@ function AdminPage() {
     const hours = date.getHours().toString().padStart(2, '0')
     const minutes = date.getMinutes().toString().padStart(2, '0')
     return `${month}월 ${day}일 ${hours}:${minutes}`
+  }
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-24">
+        <p className="text-gray-500">데이터를 불러오는 중...</p>
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="flex flex-col items-center justify-center py-24 gap-4">
+        <p className="text-red-600">{error}</p>
+        <button
+          onClick={refresh}
+          className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+        >
+          다시 불러오기
+        </button>
+      </div>
+    )
   }
 
   return (
@@ -197,7 +286,15 @@ function AdminPage() {
 
       {/* 주문 현황 */}
       <div className="bg-white border border-gray-200 rounded-lg p-6">
-        <h2 className="text-lg font-bold text-gray-800 mb-4">주문 현황</h2>
+        <div className="flex justify-between items-center mb-4">
+          <h2 className="text-lg font-bold text-gray-800">주문 현황</h2>
+          <button
+            onClick={refresh}
+            className="text-sm text-blue-600 hover:text-blue-700"
+          >
+            새로고침
+          </button>
+        </div>
         {orders.length === 0 ? (
           <p className="text-gray-500 text-center py-8">주문이 없습니다.</p>
         ) : (
