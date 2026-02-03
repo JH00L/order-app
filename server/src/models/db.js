@@ -4,7 +4,7 @@
 const { Pool } = require('pg');
 const dbConfig = require('../config/database');
 
-// 커넥션 풀 생성
+// connectionString(DATABASE_URL) 또는 개별 설정 지원
 const pool = new Pool(dbConfig);
 
 // 연결 테스트
